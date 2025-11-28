@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import List, Union ,Any, Optional,Type,TypeVar
 from enum import Enum
 
-from pydantic import BaseModel, Field , Schema
+from pydantic import BaseModel, Field
 from . import properties, helpers
 #from . helpereffect import Group
 # this is gonna suck

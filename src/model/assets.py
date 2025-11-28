@@ -5,7 +5,7 @@ import os
 
 from typing import List, Union
 
-from pydantic import BaseModel, Field , Schema
+from pydantic import BaseModel, Field
 
 from . import layers
 from . import shapes

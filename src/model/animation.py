@@ -1,6 +1,6 @@
 from typing import List, Union, Any
 from enum import Enum
-from pydantic import BaseModel, BaseConfig, Field , Schema
+from pydantic import BaseModel, BaseConfig, Field
 #from pydantic.dataclasses import dataclass
 
 from . import layers

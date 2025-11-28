@@ -64,7 +64,7 @@ def formatfloat(x):
 def pformat(dictionary, function):
     if isinstance(dictionary, dict):
         return type(dictionary)((key, pformat(value, function)) for key, value in dictionary.items())
-    if isinstance(dictionary, collections.Container):
+    if isinstance(dictionary, collections.abc.Container):
         if not isinstance(dictionary,str):
             return type(dictionary)(pformat(value, function) for value in dictionary)
     if isinstance(dictionary, numbers.Number):
@@ -1394,8 +1394,10 @@ def convert_svg_to_lottie_def(file, layer_frames=0, *args, **kwargs):
         jsondata = json.loads(data)
         optdata = pformat(jsondata, formatfloat)
         return (optdata)
-    except:
-        return {"error!"}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error!": str(e)}
 
 
 def convert_svg_to_lottie(file, layer_frames=0, *args, **kwargs):
@@ -1452,8 +1454,10 @@ def convert_svg_to_lottie(file, layer_frames=0, *args, **kwargs):
 
         return (optdata)
 
-    except:
-        return {"error!"}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error!": str(e)}
 
 def base_convert_svg_to_lottie(file, layer_frames=0, *args, **kwargs):
     #try:

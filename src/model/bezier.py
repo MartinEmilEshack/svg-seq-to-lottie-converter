@@ -13,7 +13,7 @@ from typing import List, Union, Any , Optional, TypeVar
 #from dataclasses import dataclass
 from enum import Enum
 
-from pydantic import BaseModel, Field , Schema
+from pydantic import BaseModel, Field
 from . import properties, helpers
 from .properties import Value as pValue, MultiDimensional
 

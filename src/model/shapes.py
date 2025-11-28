@@ -6,7 +6,7 @@ import json
 import copy
 import numpy as np
 
-from pydantic import BaseModel, Field , Schema
+from pydantic import BaseModel, Field
 from . import properties, helpers
 from .properties import Value as pValue, MultiDimensional,ShapeProp
 #from .bezier import Bezier

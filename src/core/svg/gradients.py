@@ -204,19 +204,18 @@ def parse_color(color, current_color=cVector(0, 0, 0, 1)):
         return cVector(col[0]/255,col[1]/255,col[2]/255,1)
         #return cVector(int(match[1])/255, int(match[2])/255, int(match[3])/255, 1)
 
-    match = re.match(r"^rgb\s*\(\s*([0-9]+)%\s*,\s*([0-9]+)%\s*,\s*([0-9]+)%\s*\)$", color)
+    match = re.match(r"^rgb\s*\(\s*([0-9.]+)%\s*,\s*([0-9.]+)%\s*,\s*([0-9.]+)%\s*\)$", color)
     if match:
         #col = colors.hex2color(color)
         #print (match[3])
-        return cVector(int(match[1])/100, int(match[2])/100, int(match[3])/100,1)
+        return cVector(float(match[1])/100, float(match[2])/100, float(match[3])/100, 1)
 
         #return cVector(col[0]/100,col[1]/100,col[2]/100,1)
         #return cVector(int(match[1])/100, int(match[2])/100, int(match[3])/100, 1)
 
-    match = re.match(r"^rgb\s*\(\s*([0-9]+)%\s*,\s*([0-9]+)%\s*,\s*([0-9]+)%\s*,\s*([0-9.eE]+)\s*\)$", color)
+    match = re.match(r"^rgba?\s*\(\s*([0-9.]+)%\s*,\s*([0-9.]+)%\s*,\s*([0-9.]+)%\s*,\s*([0-9.eE]+)\s*\)$", color)
     if match:
-        col = colors.hex2color(color)
-        return cVector(col[0]/100,col[1]/100,col[2]/100,float(match[4]))
+        return cVector(float(match[1])/100, float(match[2])/100, float(match[3])/100, float(match[4]))
         #return cVector(int(match[1])/100, int(match[2])/100, int(match[3])/100, float(match[4]))
     
     match = re.match(r'rgb\((?:(\d{1,3}.?(?:\d{1,50}\%)?)(?:\,?)(\d{1,3}.?(?:\d{1,50}\%)?)(?:\,?)(\d{1,3}.?(?:\d{1,50}\%)?)(?:))\)', color)

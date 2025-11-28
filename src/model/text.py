@@ -2,7 +2,7 @@ from typing import List, Union, Any
 #from dataclasses import dataclass
 from enum import Enum
 
-from pydantic import BaseModel, Field , Schema
+from pydantic import BaseModel, Field
 
 
 from . import properties, helpers

@@ -60,7 +60,22 @@ async def http_exception_handler(request, exc):
 
 
 @app.post("/uploadsvg/")
-def create_upload_file_def(optimize: bool = False, file: UploadFile = File(...)):
+def create_upload_file_def(
+    optimize: bool = False,
+    output_path: str = None,
+    file: UploadFile = File(...)
+):
+    """
+    Convert SVG to Lottie JSON.
+    
+    Args:
+        optimize: If True, use optimized conversion mode
+        output_path: Optional path to save the Lottie JSON file (e.g., "/path/to/output.json")
+        file: The SVG file to convert
+    
+    Returns:
+        Lottie JSON object (and saves to file if output_path is specified)
+    """
     try:
         suffix = Path(file.filename).suffix
         with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -69,25 +84,36 @@ def create_upload_file_def(optimize: bool = False, file: UploadFile = File(...))
             file.file.close()
 
             newfile = NamedTemporaryFile(delete=False, suffix=".svg")
-            # newfilepath = Path(newfile.name)
 
         cairosvg.svg2svg(file_obj=open(tmp_path, 'rb'), write_to=newfile.name)
 
     finally:
-        # file.file.close()
-
         if (is_svg(tmp_path)):
             if not optimize:
                 anim = convert_svg_to_lottie_def(str(newfile.name))
             else:
                 anim = convert_svg_to_lottie(str(newfile.name))
-            # an = json.loads(anim)
 
+            # Clean up temp files
             newfilepath = newfile.name
             os.unlink(newfilepath)
             assert not os.path.exists(newfilepath)
             os.unlink(tmp_path)
             assert not os.path.exists(tmp_path)
+
+            # Save to file if output_path is specified
+            if output_path:
+                output_file = Path(output_path)
+                # Create parent directories if they don't exist
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    json.dump(anim, f, indent=2, ensure_ascii=False)
+                return {
+                    "success": True,
+                    "message": f"Lottie JSON saved to {output_path}",
+                    "output_path": str(output_file.absolute()),
+                    "data": anim
+                }
 
             return anim
         else:

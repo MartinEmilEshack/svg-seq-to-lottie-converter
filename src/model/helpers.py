@@ -4,7 +4,7 @@ from typing import Union, Optional, List
 #from dataclasses import dataclass
 from enum import Enum
 
-from pydantic import BaseModel, Field , Schema
+from pydantic import BaseModel, Field
 
 from . import properties
 

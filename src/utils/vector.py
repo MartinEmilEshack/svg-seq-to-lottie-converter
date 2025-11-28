@@ -9,7 +9,7 @@ import pathlib
 
 import json
 import pydantic.json 
-from pydantic import BaseModel, Field , Schema
+from pydantic import BaseModel, Field
 from typing import List, Dict
 
 
