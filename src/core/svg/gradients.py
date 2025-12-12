@@ -198,10 +198,10 @@ def parse_color(color, current_color=cVector(0, 0, 0, 1)):
     if match:
         return cVector(int(match[1])/255, int(match[2])/255, int(match[3])/255, float(match[4]))
 
-    match = re.match(r"^rgb\s*\(\s*([0-9]+)\s*,\s*([0-9]+)\s*,\s*([0-9]+)\s*\)$", color)
+    match = re.match(r"^rgb\s*\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\)$", color)
     if match:
-        # Use matched values directly instead of hex2color
-        return cVector(int(match[1])/255, int(match[2])/255, int(match[3])/255, 1)
+        # Support both integer and float values (e.g., rgb(121.0, 50.0, 8.0))
+        return cVector(float(match[1])/255, float(match[2])/255, float(match[3])/255, 1)
 
     match = re.match(r"^rgb\s*\(\s*([0-9.]+)%\s*,\s*([0-9.]+)%\s*,\s*([0-9.]+)%\s*\)$", color)
     if match:

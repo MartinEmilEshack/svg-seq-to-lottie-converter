@@ -262,9 +262,9 @@ def _merge_layers_by_position(original_svg_path: str, cairo_svg_path: str,
                         shape_idx += 1
                         break
         
-        if len(char_positions) != len(shape_layers):
-            print(f"Warning: Character count mismatch: {len(char_positions)} vs {len(shape_layers)} shape layers")
-            # Continue anyway, use min of the two
+        # Note: char_positions may differ from shape_layers count
+        # (e.g., SVG with shapes but no text, or text + other shapes)
+        # This is normal and doesn't affect the layer ordering
         
         # Step 3: Group shape layers by matching X and Y position to text bounding boxes
         text_group_layers = {}  # element_index -> list of shape layers
