@@ -30,7 +30,7 @@ class Animation (BaseModel):
     height: float = Field(512, alias='h', description='height')
     name: str = Field(None,alias='nm', description='composition name')  
 
-    #assets: List[AnySource] = Field([],alias="assets") # Not used in SVG to Lottie
+    assets: List[AnySource] = Field([],alias="assets")
     layers: List[AnyLayer] = Field([],alias='layers')
     #chars: List[Chars] = Field([],alias='char') # Not used in SVG to Lottie
     #markers: List[Any] = Field([],alias='markers') # Not used in SVG to Lottie

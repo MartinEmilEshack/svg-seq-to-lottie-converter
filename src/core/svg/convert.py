@@ -9,6 +9,9 @@ import collections
 import numbers
 import json
 import random
+import base64
+import requests
+from urllib.parse import urlparse
 from enum import Enum
 
 from xml.etree import ElementTree
@@ -35,6 +38,8 @@ try:
 except ImportError:
     has_font = False
 """
+# Font support is disabled, set has_font to False
+has_font = False
 
 
 def Vector(*args):
@@ -114,13 +119,20 @@ class DefsParent:
 
 
 class Parser(Handler):
-    def __init__(self, name_mode=NameMode.Inkscape):
+    def __init__(self, name_mode=NameMode.Inkscape, embed_images=False):
         self.init_etree()
         self.name_mode = name_mode
         self.current_color = Vector(0, 0, 0, 1)
         self.gradients = {}
         self.max_time = 0
         self.defs = DefsParent()
+        # Image handling
+        self.embed_images = embed_images  # Whether to embed images as base64
+        self.image_assets = []            # Collected image assets
+        self.image_layers = []            # Collected image layers
+        self.image_index = 0              # Image ID counter
+        # Transform stack to track cumulative parent transforms
+        self.transform_stack = []  # List of transform strings from parent <g> elements
 
     def _get_name(self, element, inkscapequal):
         if self.name_mode == NameMode.Inkscape:
@@ -407,7 +419,12 @@ class Parser(Handler):
         group.name = self._get_name(
             element, self.qualified("inkscape", "label")
         )
+        # Push current transform to stack before parsing children
+        transform_str = element.attrib.get("transform", "")
+        self.transform_stack.append(transform_str)
         self.parse_children(element, group, style)
+        # Pop transform after parsing children
+        self.transform_stack.pop()
         self.parse_transform(element, group, group.transform)
         if group.hidden:  # Lottie web doesn't seem to support .hd
             group.transform.opacity.value = 0
@@ -566,6 +583,124 @@ class Parser(Handler):
         #paths.append(objects.shapes.Merge())
         return self.add_shapes(element, paths, shape_parent, parent_style)
 
+    def _parseshape_image(self, element, shape_parent, parent_style):
+        """
+        Parse SVG <image> element and convert to Lottie ImageLayer.
+        The image is stored as an asset and referenced by an ImageLayer.
+        """
+        # Get xlink:href attribute
+        href = element.attrib.get(self.qualified("xlink", "href"))
+        if not href:
+            # Try without namespace (some SVGs use just href)
+            href = element.attrib.get("href")
+        if not href:
+            return None
+        
+        # Get image dimensions and position
+        x = float(element.attrib.get("x", 0))
+        y = float(element.attrib.get("y", 0))
+        width = self._parse_unit(element.attrib.get("width", 0))
+        height = self._parse_unit(element.attrib.get("height", 0))
+        
+        # Create unique image ID
+        image_id = f"image_{self.image_index}"
+        self.image_index += 1
+        
+        # Create image asset
+        if self.embed_images and href.startswith(("http://", "https://")):
+            # Download and embed as base64
+            image_asset = self._download_and_embed_image(href, image_id, width, height)
+        else:
+            # Keep URL reference
+            image_asset = {
+                "id": image_id,
+                "w": int(width),
+                "h": int(height),
+                "u": "",  # Path prefix (empty for URLs)
+                "p": href,  # Image path or URL
+                "e": 0  # 0 = external link
+            }
+        
+        self.image_assets.append(image_asset)
+        
+        # Parse transform from parent <g> element
+        style = self.parse_style(element, parent_style)
+        
+        # Store image layer info (will be created in parse_etree)
+        # Capture the current transform stack (copy it since it will change)
+        image_layer_info = {
+            "asset_id": image_id,
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "element": element,
+            "style": style,
+            "parent_transforms": list(self.transform_stack)  # Copy of parent transforms
+        }
+        self.image_layers.append(image_layer_info)
+        
+        # Return a placeholder group (the actual ImageLayer will be added separately)
+        return None
+
+    def _download_and_embed_image(self, url, image_id, width, height):
+        """
+        Download image from URL and convert to base64 data URL.
+        Falls back to URL reference if download fails.
+        """
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            
+            # Detect image type from Content-Type header
+            content_type = response.headers.get('Content-Type', 'image/png')
+            if 'png' in content_type.lower():
+                format_type = 'png'
+            elif 'jpeg' in content_type.lower() or 'jpg' in content_type.lower():
+                format_type = 'jpeg'
+            elif 'gif' in content_type.lower():
+                format_type = 'gif'
+            elif 'webp' in content_type.lower():
+                format_type = 'webp'
+            else:
+                # Try to detect from URL
+                parsed_url = urlparse(url)
+                path = parsed_url.path.lower()
+                if path.endswith('.png'):
+                    format_type = 'png'
+                elif path.endswith(('.jpg', '.jpeg')):
+                    format_type = 'jpeg'
+                elif path.endswith('.gif'):
+                    format_type = 'gif'
+                elif path.endswith('.webp'):
+                    format_type = 'webp'
+                else:
+                    format_type = 'png'  # Default to PNG
+            
+            # Encode to base64
+            encoded = base64.b64encode(response.content).decode('ascii')
+            data_url = f"data:image/{format_type};base64,{encoded}"
+            
+            return {
+                "id": image_id,
+                "w": int(width),
+                "h": int(height),
+                "u": "",
+                "p": data_url,
+                "e": 1  # 1 = embedded
+            }
+        except Exception as e:
+            print(f"Warning: Failed to embed image {url}: {e}")
+            # Fall back to URL reference
+            return {
+                "id": image_id,
+                "w": int(width),
+                "h": int(height),
+                "u": "",
+                "p": url,
+                "e": 0
+            }
+
     def parse_children(self, element, shape_parent, parent_style):
         #print (parent_style)
 
@@ -644,7 +779,115 @@ class Parser(Handler):
                     sy = ((animation.height / vbh) * 100)
                     layer.transform.scale.value = [sx, sy]
 
+        # Add image assets and create ImageLayers
+        if self.image_assets:
+            animation.assets = self.image_assets
+            
+            # Create ImageLayers for each image
+            for i, img_info in enumerate(self.image_layers):
+                image_layer = objects.layers.ImageLayer(
+                    referenceID=img_info["asset_id"],
+                    transform=helpers.Transform()
+                )
+                image_layer.name = f"image_layer_{i}"
+                image_layer.width = img_info["width"]
+                image_layer.height = img_info["height"]
+                
+                # Get parent transforms and compute cumulative matrix
+                parent_transforms = img_info.get("parent_transforms", [])
+                
+                # Compute cumulative transform from all parent <g> elements
+                cumulative_matrix = TransformMatrix()
+                for transform_str in parent_transforms:
+                    if transform_str:
+                        parent_matrix = self._transform_to_matrix(transform_str)
+                        cumulative_matrix = cumulative_matrix * parent_matrix
+                
+                # Extract transform components from cumulative matrix
+                trans = cumulative_matrix.extract_transform()
+                
+                # Calculate the center position in local coordinates
+                # SVG image x,y is top-left corner offset
+                local_center_x = img_info["x"] + img_info["width"] / 2
+                local_center_y = img_info["y"] + img_info["height"] / 2
+                
+                # Apply the cumulative transform to get final position
+                # The matrix transform: [x', y'] = [a*x + c*y + tx, b*x + d*y + ty]
+                final_x = cumulative_matrix.a * local_center_x + cumulative_matrix.c * local_center_y + cumulative_matrix.tx
+                final_y = cumulative_matrix.b * local_center_x + cumulative_matrix.d * local_center_y + cumulative_matrix.ty
+                
+                image_layer.transform.position.value = [final_x, final_y]
+                image_layer.transform.anchorPoint.value = [img_info["width"] / 2, img_info["height"] / 2]
+                
+                # Apply scale from cumulative transform
+                scale_x = trans["scale"][0] * 100
+                scale_y = trans["scale"][1] * 100
+                image_layer.transform.scale.value = [scale_x, scale_y]
+                
+                # Apply rotation from cumulative transform
+                image_layer.transform.rotation.value = -math.degrees(trans["angle"])
+                
+                # Apply opacity from style
+                opacity = float(img_info["style"].get("opacity", 1))
+                image_layer.transform.opacity.value = opacity * 100
+                
+                # Insert at beginning to render behind other layers (SVG order)
+                animation.insert_layer(0, image_layer)
+
         return animation
+
+    def _apply_element_transform_to_layer(self, element, layer):
+        """
+        Apply SVG transform attribute from element to a Lottie layer.
+        Parses the transform string and applies translation, scale, rotation.
+        """
+        transform_str = element.attrib.get("transform", "")
+        if not transform_str:
+            return
+        
+        for t in re.finditer(r"([a-zA-Z]+)\s*\(([^\)]*)\)", transform_str):
+            name = t[1]
+            params = list(map(float, t[2].strip().replace(",", " ").split()))
+            
+            if name == "translate":
+                dx = params[0]
+                dy = params[1] if len(params) > 1 else 0
+                # Add to existing position
+                current_pos = layer.transform.position.value
+                layer.transform.position.value = [current_pos[0] + dx, current_pos[1] + dy]
+            
+            elif name == "scale":
+                sx = params[0]
+                sy = params[1] if len(params) > 1 else sx
+                # Multiply with existing scale
+                current_scale = layer.transform.scale.value
+                layer.transform.scale.value = [current_scale[0] * sx, current_scale[1] * sy]
+            
+            elif name == "rotate":
+                angle = params[0]
+                # If rotation center is specified
+                if len(params) > 2:
+                    cx, cy = params[1], params[2]
+                    # Adjust anchor point for rotation center
+                    current_anchor = layer.transform.anchorPoint.value
+                    layer.transform.anchorPoint.value = [current_anchor[0] + cx, current_anchor[1] + cy]
+                layer.transform.rotation.value = angle
+            
+            elif name == "matrix":
+                # matrix(a, b, c, d, tx, ty)
+                if len(params) >= 6:
+                    a, b, c, d, tx, ty = params[:6]
+                    # Extract translation
+                    current_pos = layer.transform.position.value
+                    layer.transform.position.value = [current_pos[0] + tx, current_pos[1] + ty]
+                    # Extract scale (approximate)
+                    sx = math.sqrt(a*a + b*b)
+                    sy = math.sqrt(c*c + d*d)
+                    current_scale = layer.transform.scale.value
+                    layer.transform.scale.value = [current_scale[0] * sx * 100, current_scale[1] * sy * 100]
+                    # Extract rotation
+                    rotation = math.degrees(math.atan2(b, a))
+                    layer.transform.rotation.value = rotation
 
     def _parse_defs(self, element):
         self.parse_children(element, self.defs, {})
@@ -795,20 +1038,22 @@ class Parser(Handler):
             group.add_shape(font.FontShape(element.text, font_style)).refresh()
         for child in element:
             if child.tag == self.qualified("svg", "tspan"):
-                self._parseshape_text(child, group, font_style.clone())
+                # Pass empty style dict for nested tspan elements
+                self._parseshape_text(child, group, {})
             if child.tail:
                 group.add_shape(font.FontShape(child.text,
                                                font_style)).refresh()
 
-    def _parseshape_text(self, element, shape_parent, font_style=None):
-        group = objects.Group()
-        style = self.parse_style(element)
+    def _parseshape_text(self, element, shape_parent, parent_style=None):
+        group = objects.layers.Group()
+        if parent_style is None:
+            parent_style = {}
+        style = self.parse_style(element, parent_style)
         self.apply_common_style(style, group.transform)
         self.apply_visibility(style, group)
         group.name = self._get_id(element)
         if has_font:
-            if font_style is None:
-                font_style = font.FontStyle("", 64)
+            font_style = font.FontStyle("", 64)
             self._parse_text_elem(element, style, group, font_style)
 
         style.setdefault("fill", "none")
@@ -825,7 +1070,7 @@ class Parser(Handler):
                 dx -= group.bounding_box().width
 
             if dx or dy:
-                ng = objects.Group()
+                ng = objects.layers.Group()
                 ng.add_shape(group)
                 group.transform.position.value.x += dx
                 group.transform.position.value.y += dy
@@ -1355,15 +1600,15 @@ class PathDParser:
         self._parse_Z()
 
 
-def parse_svg_etree(etree, layer_frames=0, *args, **kwargs):
-    parser = Parser()
+def parse_svg_etree(etree, layer_frames=0, embed_images=False, *args, **kwargs):
+    parser = Parser(embed_images=embed_images)
     return parser.parse_etree(etree, layer_frames, *args, **kwargs)
 
 
-def convert_svg_to_lottie_def(file, layer_frames=0, *args, **kwargs):
+def convert_svg_to_lottie_def(file, layer_frames=0, embed_images=False, *args, **kwargs):
     try:
         anim = parse_svg_etree(
-            ElementTree.parse(file), layer_frames, *args, **kwargs
+            ElementTree.parse(file), layer_frames, embed_images=embed_images, *args, **kwargs
         )
         
         an = anim
@@ -1372,23 +1617,33 @@ def convert_svg_to_lottie_def(file, layer_frames=0, *args, **kwargs):
         lottie.height = int(an.height)
         lottie.endFrame = 1
 
-        shapeslen = (len(an.layers[0].shapes))
-        #trans = {"ty":"tr"} # an.layers[0].transform
-        trans = an.layers[0].transform
+        # Copy assets (images) from parsed animation first
+        if hasattr(anim, 'assets') and anim.assets:
+            lottie.assets = anim.assets
 
-        for x in range(shapeslen):
-            if (len(an.layers[0].shapes[x].shapes)) > 1 :
-                layer = model.layers.ShapeLayer()
+        # Process layers - handle both ImageLayers and ShapeLayers
+        for layer in an.layers:
+            # Check if it's an ImageLayer (type == 2)
+            if hasattr(layer, 'type') and layer.type == 2:
                 lottie.add_layer(layer)
-                layer.endFrame = 60    
-                layer.transform = trans
-                g = layer.add_shape(model.layers.Group())
-                anshape = an.layers[0].shapes[x]
-                layer.shapes[0] = anshape
-                if anshape.name is None:
-                    layer.name = "layer"+str(x)
-                else:
-                    layer.name = anshape.name
+            # Check if it's a ShapeLayer with shapes attribute
+            elif hasattr(layer, 'shapes') and layer.shapes:
+                trans = layer.transform
+                shapeslen = len(layer.shapes)
+                
+                for x in range(shapeslen):
+                    shape = layer.shapes[x]
+                    if hasattr(shape, 'shapes') and len(shape.shapes) > 1:
+                        new_layer = model.layers.ShapeLayer()
+                        lottie.add_layer(new_layer)
+                        new_layer.endFrame = 60    
+                        new_layer.transform = trans
+                        g = new_layer.add_shape(model.layers.Group())
+                        new_layer.shapes[0] = shape
+                        if shape.name is None:
+                            new_layer.name = "layer" + str(x)
+                        else:
+                            new_layer.name = shape.name
 
         data = (lottie.json(by_alias=True,exclude_none=True))
         jsondata = json.loads(data)
@@ -1400,10 +1655,10 @@ def convert_svg_to_lottie_def(file, layer_frames=0, *args, **kwargs):
         return {"error!": str(e)}
 
 
-def convert_svg_to_lottie(file, layer_frames=0, *args, **kwargs):
+def convert_svg_to_lottie(file, layer_frames=0, embed_images=False, *args, **kwargs):
     try:
         anim = parse_svg_etree(
-            ElementTree.parse(file), layer_frames, *args, **kwargs
+            ElementTree.parse(file), layer_frames, embed_images=embed_images, *args, **kwargs
         )
 
         lottie = animation.Animation()
@@ -1446,6 +1701,14 @@ def convert_svg_to_lottie(file, layer_frames=0, *args, **kwargs):
                     
             lottie.layers[l].shapes = newshapes
             l += 1
+
+        # Copy assets (images) from parsed animation
+        if hasattr(anim, 'assets') and anim.assets:
+            lottie.assets = anim.assets
+            # Also copy image layers
+            for layer in anim.layers:
+                if hasattr(layer, 'type') and layer.type == 2:  # ImageLayer type
+                    lottie.add_layer(layer)
 
         data = (lottie.json(by_alias=True,exclude_none=True))
         #data = (lottie.json(by_alias=True,exclude_none=True))
