@@ -15,20 +15,20 @@ from urllib.parse import urlparse
 from enum import Enum
 
 from xml.etree import ElementTree
-from model import animation as objects
-from model import *
-import model
+from ...model import animation as objects
+from ...model import *
+from ...model import animation
+from ...model import helpers
+from ... import model
 
-from model import animation
-
-from utils.vector import NVector  #as Vector
-from utils.transform import TransformMatrix
-from core.shape import Point, Size
+from ...utils.vector import NVector  #as Vector
+from ...utils.transform import TransformMatrix
+from ..shape import Point, Size
 from .svgdata import color_table, css_atrrs
 from .handler import Handler, NameMode
 #from model.bezier import Bezier
-from core.shape import Ellipse
-from model.properties import Value, MultiDimensional, OffsetKeyframe, MDBezier, ShapeProp
+from ..shape import Ellipse
+from ...model.properties import Value, MultiDimensional, OffsetKeyframe, MDBezier, ShapeProp
 import numpy as np
 from .gradients import *
 """
@@ -38,6 +38,7 @@ try:
 except ImportError:
     has_font = False
 """
+
 # Font support is disabled, set has_font to False
 has_font = False
 
@@ -119,7 +120,7 @@ class DefsParent:
 
 
 class Parser(Handler):
-    def __init__(self, name_mode=NameMode.Inkscape, embed_images=False):
+    def __init__(self, name_mode=NameMode.Inkscape, embed_images=False, download_func=None):
         self.init_etree()
         self.name_mode = name_mode
         self.current_color = Vector(0, 0, 0, 1)
@@ -133,6 +134,10 @@ class Parser(Handler):
         self.image_index = 0              # Image ID counter
         # Transform stack to track cumulative parent transforms
         self.transform_stack = []  # List of transform strings from parent <g> elements
+        # Custom download function (for production environments)
+        # If None, use requests.get; if provided, should be callable(url) -> bytes
+        self.download_func = download_func
+
 
     def _get_name(self, element, inkscapequal):
         if self.name_mode == NameMode.Inkscape:
@@ -430,6 +435,14 @@ class Parser(Handler):
             group.transform.opacity.value = 0
         return group
 
+    def _parseshape_symbol(self, element, shape_parent, parent_style):
+        """
+        Parse SVG <symbol> element - used by CairoSVG 2.7.x for glyph definitions.
+        CairoSVG 2.8.x uses <g> elements instead.
+        This method reuses _parseshape_g logic for compatibility with both versions.
+        """
+        return self._parseshape_g(element, shape_parent, parent_style)
+
     def _parseshape_ellipse(self, element, shape_parent, parent_style):
         ellipse = model.shapes.Ellipse()
         ellipse.position.value = Vector(
@@ -647,23 +660,42 @@ class Parser(Handler):
         """
         Download image from URL and convert to base64 data URL.
         Falls back to URL reference if download fails.
+        
+        Uses self.download_func if provided (for production environment),
+        otherwise uses requests.get (for local testing).
         """
         try:
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            
-            # Detect image type from Content-Type header
-            content_type = response.headers.get('Content-Type', 'image/png')
-            if 'png' in content_type.lower():
-                format_type = 'png'
-            elif 'jpeg' in content_type.lower() or 'jpg' in content_type.lower():
-                format_type = 'jpeg'
-            elif 'gif' in content_type.lower():
-                format_type = 'gif'
-            elif 'webp' in content_type.lower():
-                format_type = 'webp'
+            # Use custom download function if provided, otherwise use requests
+            if self.download_func is not None:
+                # Custom download function should return bytes
+                image_data = self.download_func(url)
+                if image_data is None:
+                    raise Exception("Custom download function returned None")
+                content_type = None  # Will detect from URL
             else:
-                # Try to detect from URL
+                # Default: use requests for local testing
+                response = requests.get(url, timeout=30)
+                response.raise_for_status()
+                image_data = response.content
+                content_type = response.headers.get('Content-Type', 'image/png')
+            
+            # Detect image type from Content-Type header or URL
+            if content_type:
+                if 'png' in content_type.lower():
+                    format_type = 'png'
+                elif 'jpeg' in content_type.lower() or 'jpg' in content_type.lower():
+                    format_type = 'jpeg'
+                elif 'gif' in content_type.lower():
+                    format_type = 'gif'
+                elif 'webp' in content_type.lower():
+                    format_type = 'webp'
+                else:
+                    format_type = None
+            else:
+                format_type = None
+            
+            # If format not detected from header, try URL
+            if format_type is None:
                 parsed_url = urlparse(url)
                 path = parsed_url.path.lower()
                 if path.endswith('.png'):
@@ -678,7 +710,7 @@ class Parser(Handler):
                     format_type = 'png'  # Default to PNG
             
             # Encode to base64
-            encoded = base64.b64encode(response.content).decode('ascii')
+            encoded = base64.b64encode(image_data).decode('ascii')
             data_url = f"data:image/{format_type};base64,{encoded}"
             
             return {
@@ -700,6 +732,7 @@ class Parser(Handler):
                 "p": url,
                 "e": 0
             }
+
 
     def parse_children(self, element, shape_parent, parent_style):
         #print (parent_style)
@@ -1600,15 +1633,15 @@ class PathDParser:
         self._parse_Z()
 
 
-def parse_svg_etree(etree, layer_frames=0, embed_images=False, *args, **kwargs):
-    parser = Parser(embed_images=embed_images)
+def parse_svg_etree(etree, layer_frames=0, embed_images=False, download_func=None, *args, **kwargs):
+    parser = Parser(embed_images=embed_images, download_func=download_func)
     return parser.parse_etree(etree, layer_frames, *args, **kwargs)
 
 
-def convert_svg_to_lottie_def(file, layer_frames=0, embed_images=False, *args, **kwargs):
+def convert_svg_to_lottie_def(file, layer_frames=0, embed_images=False, download_func=None, *args, **kwargs):
     try:
         anim = parse_svg_etree(
-            ElementTree.parse(file), layer_frames, embed_images=embed_images, *args, **kwargs
+            ElementTree.parse(file), layer_frames, embed_images=embed_images, download_func=download_func, *args, **kwargs
         )
         
         an = anim
@@ -1655,10 +1688,10 @@ def convert_svg_to_lottie_def(file, layer_frames=0, embed_images=False, *args, *
         return {"error!": str(e)}
 
 
-def convert_svg_to_lottie(file, layer_frames=0, embed_images=False, *args, **kwargs):
+def convert_svg_to_lottie(file, layer_frames=0, embed_images=False, download_func=None, *args, **kwargs):
     try:
         anim = parse_svg_etree(
-            ElementTree.parse(file), layer_frames, embed_images=embed_images, *args, **kwargs
+            ElementTree.parse(file), layer_frames, embed_images=embed_images, download_func=download_func, *args, **kwargs
         )
 
         lottie = animation.Animation()
