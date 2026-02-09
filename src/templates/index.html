@@ -70,6 +70,10 @@
       .error {
         color: #dc2626;
       }
+      lottie-player {
+        display: block;
+        margin: 0 auto;
+      }
     </style>
   </head>
   <body>
@@ -91,8 +95,7 @@
             controls
             loop
             mode="normal"
-            src=""
-            style="width: 320px"
+            style="width: 640px"
           ></lottie-player>
         </div>
       </div>
@@ -104,6 +107,14 @@
       const resultEl = document.getElementById("result");
       const downloadLink = document.getElementById("downloadLink");
       const lottiePlayer = document.getElementById("lottiePlayer");
+      let pendingAnimationUrl = null;
+
+      lottiePlayer.addEventListener("rendered", () => {
+        if (pendingAnimationUrl) {
+          lottiePlayer.load(pendingAnimationUrl);
+          pendingAnimationUrl = null;
+        }
+      });
 
       uploadButton.addEventListener("click", async () => {
         if (!fileInput.files.length) {
@@ -134,7 +145,8 @@
           statusEl.textContent = data.message || "Conversion complete.";
           downloadLink.href = data.download_url;
           downloadLink.setAttribute("download", data.filename);
-          lottiePlayer.setAttribute("src", data.json_url);
+          pendingAnimationUrl = data.json_url;
+          lottiePlayer.load(pendingAnimationUrl);
           resultEl.style.display = "block";
         } catch (error) {
           statusEl.textContent = error.message;
