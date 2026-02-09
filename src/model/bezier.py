@@ -5,8 +5,8 @@ from functools import wraps
 #import numpy as np 
 import copy
 
-from . import animation
-from ..utils.vector import NVector, Point
+from model import animation
+from utils.vector import NVector, Point
 
 
 from typing import List, Union, Any , Optional, TypeVar

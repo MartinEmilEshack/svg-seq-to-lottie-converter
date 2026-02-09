@@ -15,20 +15,20 @@ from urllib.parse import urlparse
 from enum import Enum
 
 from xml.etree import ElementTree
-from ...model import animation as objects
-from ...model import *
-from ...model import animation
-from ...model import helpers
-from ... import model
+from model import animation as objects
+from model import *
+from model import animation
+from model import helpers
+import model
 
-from ...utils.vector import NVector  #as Vector
-from ...utils.transform import TransformMatrix
+from utils.vector import NVector  #as Vector
+from utils.transform import TransformMatrix
 from ..shape import Point, Size
 from .svgdata import color_table, css_atrrs
 from .handler import Handler, NameMode
 #from model.bezier import Bezier
 from ..shape import Ellipse
-from ...model.properties import Value, MultiDimensional, OffsetKeyframe, MDBezier, ShapeProp
+from model.properties import Value, MultiDimensional, OffsetKeyframe, MDBezier, ShapeProp
 import numpy as np
 from .gradients import *
 """
