@@ -7,6 +7,7 @@ Usage:
     python cli.py input.xml output.json              # XML with SVG content (e.g., Fabric.js export)
     python cli.py input.svg output.json --optimize
     python cli.py input.svg  # outputs to input.json in same directory
+    python cli.py frames.zip output.json  # zip containing SVG/XML frames
 """
 
 import argparse
@@ -14,6 +15,10 @@ import json
 import sys
 import os
 from pathlib import Path
+import copy
+import tempfile
+import zipfile
+from typing import List, Tuple
 
 # Add src directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -45,6 +50,184 @@ def is_svg(filename: str) -> bool:
     return is_svg_content(filename)
 
 
+def _convert_svg_to_lottie_dict(
+    input_file: str,
+    optimize: bool = False,
+    embed_images: bool = False
+) -> dict:
+    """
+    Convert SVG/XML file to Lottie JSON without writing to disk.
+    """
+    input_path = Path(input_file)
+
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input file not found: {input_file}")
+
+    if not is_svg_content(str(input_path)):
+        raise ValueError(f"Invalid SVG/XML file (no SVG content found): {input_file}")
+
+    with open(input_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    has_images = '<image' in content or 'xlink:href' in content
+
+    tmp_path = None
+    try:
+        with NamedTemporaryFile(delete=False, suffix=".svg") as tmp:
+            tmp_path = tmp.name
+        cairosvg.svg2svg(file_obj=open(input_path, 'rb'), write_to=tmp_path)
+
+        if optimize:
+            result = convert_svg_to_lottie(tmp_path, embed_images=embed_images)
+        else:
+            result = convert_svg_to_lottie_def(tmp_path, embed_images=embed_images)
+
+        if isinstance(result, dict) and 'error!' in result:
+            raise RuntimeError(f"Conversion failed: {result.get('error!', 'Unknown error')}")
+
+        if has_images:
+            image_result = _extract_images_from_svg(str(input_path), embed_images, content)
+            if image_result:
+                if 'assets' not in result or result['assets'] is None:
+                    result['assets'] = []
+                result['assets'].extend(image_result.get('assets', []))
+
+                image_layers = list(reversed(image_result.get('layers', [])))
+                shape_layers = result['layers']
+
+                merged_layers = _merge_layers_by_position(
+                    str(input_path),
+                    tmp_path,
+                    image_layers,
+                    shape_layers
+                )
+
+                if merged_layers:
+                    result['layers'] = merged_layers
+                else:
+                    print("Warning: Position matching failed, using simple layer order")
+                    background_images = [l for l in image_layers if l.get('refId', '') in ['image_0', 'image_1']]
+                    foreground_images = [l for l in image_layers if l.get('refId', '') not in ['image_0', 'image_1']]
+                    result['layers'] = foreground_images + shape_layers + background_images
+
+        return result
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+def _prefix_asset_ids(assets: list, prefix: str) -> tuple[list, dict]:
+    updated_assets = []
+    id_mapping = {}
+    for asset in assets:
+        if isinstance(asset, dict) and asset.get('id'):
+            new_id = f"{prefix}_{asset['id']}"
+            id_mapping[asset['id']] = new_id
+            asset = {**asset, 'id': new_id}
+        updated_assets.append(asset)
+    return updated_assets, id_mapping
+
+
+def _merge_zip_frames(frames: List[dict]) -> dict:
+    if not frames:
+        raise ValueError("No SVG frames found in zip archive.")
+
+    base = copy.deepcopy(frames[0])
+    total_frames = len(frames)
+    combined_layers = []
+    combined_assets = []
+    layer_index = 1
+
+    for frame_index, frame in enumerate(frames):
+        assets = frame.get('assets') or []
+        updated_assets, id_mapping = _prefix_asset_ids(assets, f"frame_{frame_index}")
+        combined_assets.extend(updated_assets)
+
+        for layer in frame.get('layers', []):
+            layer_copy = copy.deepcopy(layer)
+            layer_copy['ip'] = frame_index
+            layer_copy['op'] = frame_index + 1
+            layer_copy['ind'] = layer_index
+            if 'refId' in layer_copy and layer_copy['refId'] in id_mapping:
+                layer_copy['refId'] = id_mapping[layer_copy['refId']]
+            combined_layers.append(layer_copy)
+            layer_index += 1
+
+    base['ip'] = 0
+    base['op'] = total_frames
+    base['layers'] = combined_layers
+    base['assets'] = combined_assets
+    return base
+
+
+def _extract_zip_svg_entries(zip_path: Path) -> List[Tuple[str, bytes]]:
+    if not zipfile.is_zipfile(zip_path):
+        raise ValueError(f"Input zip is not a valid zip file: {zip_path}")
+
+    entries = []
+    with zipfile.ZipFile(zip_path, 'r') as zip_file:
+        for info in zip_file.infolist():
+            if info.is_dir():
+                continue
+            filename = info.filename
+            suffix = Path(filename).suffix.lower()
+            if suffix not in {'.svg', '.xml'}:
+                continue
+            entries.append((filename, zip_file.read(info)))
+
+    entries.sort(key=lambda entry: entry[0])
+    return entries
+
+
+def convert_zip(input_file: str, output_json: str, optimize: bool = False, pretty: bool = True, embed_images: bool = False) -> dict:
+    """
+    Convert ZIP of SVG/XML files to a single multi-frame Lottie JSON.
+    """
+    input_path = Path(input_file)
+    output_path = Path(output_json)
+
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input file not found: {input_file}")
+
+    entries = _extract_zip_svg_entries(input_path)
+    if not entries:
+        raise ValueError(f"No SVG/XML files found in zip: {input_file}")
+
+    frame_results = []
+    base_dimensions = None
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        for filename, data in entries:
+            sanitized_name = Path(filename).name
+            extracted_path = temp_path / sanitized_name
+            extracted_path.write_bytes(data)
+
+            result = _convert_svg_to_lottie_dict(
+                str(extracted_path),
+                optimize=optimize,
+                embed_images=embed_images
+            )
+
+            frame_dims = (result.get('w'), result.get('h'))
+            if base_dimensions is None:
+                base_dimensions = frame_dims
+            elif frame_dims != base_dimensions:
+                raise ValueError(
+                    f"Frame dimensions mismatch in zip. Expected {base_dimensions}, got {frame_dims} for {filename}."
+                )
+            frame_results.append(result)
+
+    combined_result = _merge_zip_frames(frame_results)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, 'w', encoding='utf-8') as f:
+        if pretty:
+            json.dump(combined_result, f, indent=2, ensure_ascii=False)
+        else:
+            json.dump(combined_result, f, ensure_ascii=False)
+
+    return combined_result
+
+
 def convert(input_file: str, output_json: str, optimize: bool = False, pretty: bool = True, embed_images: bool = False) -> dict:
     """
     Convert SVG/XML file to Lottie JSON.
@@ -61,83 +244,21 @@ def convert(input_file: str, output_json: str, optimize: bool = False, pretty: b
     """
     input_path = Path(input_file)
     output_path = Path(output_json)
-    
-    # Validate input file
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input file not found: {input_file}")
-    
-    if not is_svg_content(str(input_path)):
-        raise ValueError(f"Invalid SVG/XML file (no SVG content found): {input_file}")
-    
-    # Check if file contains <image> elements
-    with open(input_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    has_images = '<image' in content or 'xlink:href' in content
-    
-    tmp_path = None
-    try:
-        # Always preprocess SVG with CairoSVG to convert text to paths
-        with NamedTemporaryFile(delete=False, suffix=".svg") as tmp:
-            tmp_path = tmp.name
-        cairosvg.svg2svg(file_obj=open(input_path, 'rb'), write_to=tmp_path)
-        
-        # Convert the preprocessed SVG (text converted to paths)
-        if optimize:
-            result = convert_svg_to_lottie(tmp_path, embed_images=embed_images)
+
+    result = _convert_svg_to_lottie_dict(
+        str(input_path),
+        optimize=optimize,
+        embed_images=embed_images
+    )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, 'w', encoding='utf-8') as f:
+        if pretty:
+            json.dump(result, f, indent=2, ensure_ascii=False)
         else:
-            result = convert_svg_to_lottie_def(tmp_path, embed_images=embed_images)
-        
-        # Check for conversion errors
-        if isinstance(result, dict) and 'error!' in result:
-            raise RuntimeError(f"Conversion failed: {result.get('error!', 'Unknown error')}")
-        
-        # If original has images, extract them and merge with correct z-order
-        if has_images:
-            # Parse original file to extract image information
-            image_result = _extract_images_from_svg(str(input_path), embed_images, content)
-            if image_result:
-                # Merge image assets
-                if 'assets' not in result or result['assets'] is None:
-                    result['assets'] = []
-                result['assets'].extend(image_result.get('assets', []))
-                
-                # Use position-based matching to preserve exact SVG layer order
-                # Note: image_layers are in reverse order due to insert(0) in convert.py
-                image_layers = list(reversed(image_result.get('layers', [])))
-                shape_layers = result['layers']
-                
-                merged_layers = _merge_layers_by_position(
-                    str(input_path), 
-                    tmp_path, 
-                    image_layers, 
-                    shape_layers
-                )
-                
-                if merged_layers:
-                    result['layers'] = merged_layers
-                else:
-                    # Fallback to simple strategy if position matching fails
-                    print("Warning: Position matching failed, using simple layer order")
-                    background_images = [l for l in image_layers if l.get('refId', '') in ['image_0', 'image_1']]
-                    foreground_images = [l for l in image_layers if l.get('refId', '') not in ['image_0', 'image_1']]
-                    result['layers'] = foreground_images + shape_layers + background_images
-        
-        # Create output directory if needed
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Save to file
-        with open(output_path, 'w', encoding='utf-8') as f:
-            if pretty:
-                json.dump(result, f, indent=2, ensure_ascii=False)
-            else:
-                json.dump(result, f, ensure_ascii=False)
-        
-        return result
-    
-    finally:
-        # Cleanup temp file
-        if tmp_path and os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+            json.dump(result, f, ensure_ascii=False)
+
+    return result
 
 
 def _extract_images_from_svg(svg_path: str, embed_images: bool = False, content: str = None) -> dict:
@@ -339,12 +460,13 @@ Examples:
   python cli.py input.svg                          # outputs to input.json
   python cli.py input.svg -o /path/to/output.json
   python cli.py input.svg --compact                # minified JSON
+  python cli.py frames.zip --compact               # zip containing SVG/XML frames
         '''
     )
     
     parser.add_argument(
         'input',
-        help='Input SVG or XML file path (must contain SVG content)'
+        help='Input SVG/XML file path or a zip containing SVG/XML frames'
     )
     
     parser.add_argument(
@@ -399,14 +521,25 @@ Examples:
             print(f"Output to:  {output_path}")
             if args.optimize:
                 print("Mode:       optimized")
-        
-        result = convert(
-            args.input,
-            output_path,
-            optimize=args.optimize,
-            pretty=not args.compact,
-            embed_images=args.embed_images
-        )
+
+        input_path = Path(args.input)
+        is_zip_input = input_path.suffix.lower() == '.zip' or zipfile.is_zipfile(input_path)
+        if is_zip_input:
+            result = convert_zip(
+                args.input,
+                output_path,
+                optimize=args.optimize,
+                pretty=not args.compact,
+                embed_images=args.embed_images
+            )
+        else:
+            result = convert(
+                args.input,
+                output_path,
+                optimize=args.optimize,
+                pretty=not args.compact,
+                embed_images=args.embed_images
+            )
         
         if not args.quiet:
             # Get some stats
