@@ -25,7 +25,6 @@ from fastapi.staticfiles import StaticFiles
 from enum import Enum
 import cairosvg
 import time
-import uuid
 
 from cli import convert_zip
 
@@ -79,7 +78,7 @@ def index():
 def _sanitize_filename(filename: str) -> str:
     safe_name = Path(filename).name
     if not safe_name:
-        safe_name = f"upload-{uuid.uuid4().hex}"
+        safe_name = "upload"
     return safe_name
 
 
@@ -100,7 +99,7 @@ def _convert_svg_file(input_path: Path, output_path: Path, optimize: bool) -> di
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(anim, f, indent=2, ensure_ascii=False)
+            json.dump(anim, f, separators=(",", ":"), ensure_ascii=False)
         return anim
     finally:
         if tmp_path.exists():
@@ -113,17 +112,22 @@ def convert_file(
     file: UploadFile = File(...)
 ):
     safe_name = _sanitize_filename(file.filename or "")
-    upload_path = UPLOADS_DIR / safe_name
-    suffix = upload_path.suffix.lower()
+    suffix = Path(safe_name).suffix.lower()
+
+    for existing_file in UPLOADS_DIR.glob("*"):
+        if existing_file.is_file():
+            existing_file.unlink()
+
+    upload_path = UPLOADS_DIR / f"upload{suffix or ''}"
 
     with open(upload_path, "wb") as out_file:
         shutil.copyfileobj(file.file, out_file)
 
-    output_json = upload_path.with_suffix(".json")
+    output_json = UPLOADS_DIR / "output.json"
 
     try:
         if suffix == ".zip":
-            convert_zip(str(upload_path), str(output_json), optimize=optimize)
+            convert_zip(str(upload_path), str(output_json), optimize=optimize, pretty=False)
         else:
             _convert_svg_file(upload_path, output_json, optimize)
     except Exception as exc:
