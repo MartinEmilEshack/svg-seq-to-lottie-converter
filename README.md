@@ -95,6 +95,29 @@ When `output_path` is provided, the API will save the JSON to the specified loca
 
 ---
 
+## 3) Dockerized API
+
+Build the Docker image:
+```bash
+docker build -t svg-seq-to-lottie-api .
+```
+
+Run the API container:
+```bash
+docker run --rm -p 8000:8000 svg-seq-to-lottie-api
+```
+
+The API will be available at `http://127.0.0.1:8000`, including:
+- `POST /convert/` (web UI upload flow)
+- `POST /uploadsvg/` (programmatic upload endpoint)
+
+Example request from host:
+```bash
+curl -X POST "http://127.0.0.1:8000/uploadsvg/" -F "file=@src/file_copy.svg"
+```
+
+---
+
 ## Files of Interest
 - `src/svgtolottie.py` - the FastAPI app entry point
 - `src/cli.py` - the command-line interface wrapper
