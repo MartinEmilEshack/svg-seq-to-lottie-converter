@@ -24,7 +24,7 @@ class Animation (BaseModel):
     version: str = Field(_version, alias='v', description='Bodymovin version')    
     startFrame: float = Field(0, alias='ip', description='in point (first frame)') 
     endFrame: float = Field(60, alias='op', description='out point (last frame)') 
-    frameRate: float = Field(60, alias='fr', description='frame rate')
+    frameRate: int = Field(30, alias='fr', description='frame rate')
     width: float = Field(512, alias='w', description='width')
     is3D: int = Field(None,alias='ddd', description='is 3D')
     height: float = Field(512, alias='h', description='height')
@@ -56,4 +56,3 @@ class Animation (BaseModel):
         if layer.endFrame is None:
             layer.endFrame = self.endFrame
         return layer
-

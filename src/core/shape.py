@@ -135,7 +135,7 @@ class PShape:
         self._matrix = self._matrix.dot(mat)
 
 class Lottie:
-    def setup(width=512,height=512, endFrame=60, frameRate=60):
+    def setup(width=512,height=512, endFrame=60, frameRate=30):
         an = animation.Animation()
         an.width = width
         an.height = height
@@ -482,4 +482,3 @@ def _angle(u, v):
         return -arg
     return arg
     
-
