@@ -19,12 +19,23 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import PlainTextResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from enum import Enum
 import cairosvg
 import time
 
+from cli import convert_zip
+
 app = FastAPI()
+
+BASE_DIR = Path(__file__).resolve().parent
+INDEX_HTML_PATH = BASE_DIR / "templates" / "index.html"
+UPLOADS_DIR = BASE_DIR / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+app.mount("/files", StaticFiles(directory=UPLOADS_DIR), name="files")
 
 origins = [
     "http://127.0.0.1",
@@ -57,6 +68,79 @@ def is_svg(filename):
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request, exc):
     return PlainTextResponse(str(exc.detail), status_code=exc.status_code)
+
+
+@app.get("/", response_class=HTMLResponse)
+def index():
+    return INDEX_HTML_PATH.read_text(encoding="utf-8")
+
+
+def _sanitize_filename(filename: str) -> str:
+    safe_name = Path(filename).name
+    if not safe_name:
+        safe_name = "upload"
+    return safe_name
+
+
+def _convert_svg_file(input_path: Path, output_path: Path, optimize: bool) -> dict:
+    if not is_svg(str(input_path)):
+        raise ValueError("Invalid file type. Expected SVG/XML content.")
+
+    with NamedTemporaryFile(delete=False, suffix=".svg") as tmp_svg:
+        tmp_path = Path(tmp_svg.name)
+
+    cairosvg.svg2svg(file_obj=open(input_path, 'rb'), write_to=tmp_path)
+
+    try:
+        if optimize:
+            anim = convert_svg_to_lottie(str(tmp_path))
+        else:
+            anim = convert_svg_to_lottie_def(str(tmp_path))
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(anim, f, separators=(",", ":"), ensure_ascii=False)
+        return anim
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
+@app.post("/convert/")
+def convert_file(
+    optimize: bool = False,
+    file: UploadFile = File(...)
+):
+    safe_name = _sanitize_filename(file.filename or "")
+    suffix = Path(safe_name).suffix.lower()
+
+    for existing_file in UPLOADS_DIR.glob("*"):
+        if existing_file.is_file():
+            existing_file.unlink()
+
+    upload_path = UPLOADS_DIR / f"upload{suffix or ''}"
+
+    with open(upload_path, "wb") as out_file:
+        shutil.copyfileobj(file.file, out_file)
+
+    output_json = UPLOADS_DIR / "output.json"
+
+    try:
+        if suffix == ".zip":
+            convert_zip(str(upload_path), str(output_json), optimize=optimize, pretty=False)
+        else:
+            _convert_svg_file(upload_path, output_json, optimize)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    file_url = f"/files/{output_json.name}"
+    return {
+        "success": True,
+        "message": "Conversion complete.",
+        "filename": output_json.name,
+        "download_url": file_url,
+        "json_url": file_url,
+    }
 
 
 @app.post("/uploadsvg/")
