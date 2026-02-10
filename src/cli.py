@@ -18,7 +18,7 @@ from pathlib import Path
 import copy
 import tempfile
 import zipfile
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 # Add src directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -53,7 +53,8 @@ def is_svg(filename: str) -> bool:
 def _convert_svg_to_lottie_dict(
     input_file: str,
     optimize: bool = False,
-    embed_images: bool = False
+    embed_images: bool = False,
+    frame_rate: Optional[float] = None
 ) -> dict:
     """
     Convert SVG/XML file to Lottie JSON without writing to disk.
@@ -77,9 +78,9 @@ def _convert_svg_to_lottie_dict(
         cairosvg.svg2svg(file_obj=open(input_path, 'rb'), write_to=tmp_path)
 
         if optimize:
-            result = convert_svg_to_lottie(tmp_path, embed_images=embed_images)
+            result = convert_svg_to_lottie(tmp_path, embed_images=embed_images, frame_rate=frame_rate)
         else:
-            result = convert_svg_to_lottie_def(tmp_path, embed_images=embed_images)
+            result = convert_svg_to_lottie_def(tmp_path, embed_images=embed_images, frame_rate=frame_rate)
 
         if isinstance(result, dict) and 'error!' in result:
             raise RuntimeError(f"Conversion failed: {result.get('error!', 'Unknown error')}")
@@ -178,7 +179,14 @@ def _extract_zip_svg_entries(zip_path: Path) -> List[Tuple[str, bytes]]:
     return entries
 
 
-def convert_zip(input_file: str, output_json: str, optimize: bool = False, pretty: bool = True, embed_images: bool = False) -> dict:
+def convert_zip(
+    input_file: str,
+    output_json: str,
+    optimize: bool = False,
+    pretty: bool = True,
+    embed_images: bool = False,
+    frame_rate: Optional[float] = None
+) -> dict:
     """
     Convert ZIP of SVG/XML files to a single multi-frame Lottie JSON.
     """
@@ -204,7 +212,8 @@ def convert_zip(input_file: str, output_json: str, optimize: bool = False, prett
             result = _convert_svg_to_lottie_dict(
                 str(extracted_path),
                 optimize=optimize,
-                embed_images=embed_images
+                embed_images=embed_images,
+                frame_rate=frame_rate
             )
 
             frame_dims = (result.get('w'), result.get('h'))
@@ -228,7 +237,14 @@ def convert_zip(input_file: str, output_json: str, optimize: bool = False, prett
     return combined_result
 
 
-def convert(input_file: str, output_json: str, optimize: bool = False, pretty: bool = True, embed_images: bool = False) -> dict:
+def convert(
+    input_file: str,
+    output_json: str,
+    optimize: bool = False,
+    pretty: bool = True,
+    embed_images: bool = False,
+    frame_rate: Optional[float] = None
+) -> dict:
     """
     Convert SVG/XML file to Lottie JSON.
     
@@ -248,7 +264,8 @@ def convert(input_file: str, output_json: str, optimize: bool = False, pretty: b
     result = _convert_svg_to_lottie_dict(
         str(input_path),
         optimize=optimize,
-        embed_images=embed_images
+        embed_images=embed_images,
+        frame_rate=frame_rate
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -505,6 +522,13 @@ Examples:
         action='store_true',
         help='Download and embed images as base64 (default: keep URL references)'
     )
+
+    parser.add_argument(
+        '--frame-rate',
+        type=float,
+        default=30,
+        help='Frame rate for the output animation (default: 30)'
+    )
     
     args = parser.parse_args()
     
@@ -530,7 +554,8 @@ Examples:
                 output_path,
                 optimize=args.optimize,
                 pretty=not args.compact,
-                embed_images=args.embed_images
+                embed_images=args.embed_images,
+                frame_rate=args.frame_rate
             )
         else:
             result = convert(
@@ -538,7 +563,8 @@ Examples:
                 output_path,
                 optimize=args.optimize,
                 pretty=not args.compact,
-                embed_images=args.embed_images
+                embed_images=args.embed_images,
+                frame_rate=args.frame_rate
             )
         
         if not args.quiet:

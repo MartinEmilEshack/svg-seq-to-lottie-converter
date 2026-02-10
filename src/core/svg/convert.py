@@ -1654,21 +1654,30 @@ class PathDParser:
         self._parse_Z()
 
 
-def parse_svg_etree(etree, layer_frames=0, embed_images=False, download_func=None, *args, **kwargs):
+def parse_svg_etree(etree, layer_frames=0, embed_images=False, download_func=None, frame_rate=None, *args, **kwargs):
     parser = Parser(embed_images=embed_images, download_func=download_func)
+    if frame_rate is not None:
+        kwargs["frameRate"] = frame_rate
     return parser.parse_etree(etree, layer_frames, *args, **kwargs)
 
 
-def convert_svg_to_lottie_def(file, layer_frames=0, embed_images=False, download_func=None, *args, **kwargs):
+def convert_svg_to_lottie_def(file, layer_frames=0, embed_images=False, download_func=None, frame_rate=None, *args, **kwargs):
     try:
         anim = parse_svg_etree(
-            ElementTree.parse(file), layer_frames, embed_images=embed_images, download_func=download_func, *args, **kwargs
+            ElementTree.parse(file),
+            layer_frames,
+            embed_images=embed_images,
+            download_func=download_func,
+            frame_rate=frame_rate,
+            *args,
+            **kwargs
         )
         
         an = anim
         lottie = animation.Animation()
         lottie.width = int(an.width)
         lottie.height = int(an.height)
+        lottie.frameRate = an.frameRate
         lottie.endFrame = 1
 
         # Copy assets (images) from parsed animation first
@@ -1709,10 +1718,16 @@ def convert_svg_to_lottie_def(file, layer_frames=0, embed_images=False, download
         return {"error!": str(e)}
 
 
-def convert_svg_to_lottie(file, layer_frames=0, embed_images=False, download_func=None, *args, **kwargs):
+def convert_svg_to_lottie(file, layer_frames=0, embed_images=False, download_func=None, frame_rate=None, *args, **kwargs):
     try:
         anim = parse_svg_etree(
-            ElementTree.parse(file), layer_frames, embed_images=embed_images, download_func=download_func, *args, **kwargs
+            ElementTree.parse(file),
+            layer_frames,
+            embed_images=embed_images,
+            download_func=download_func,
+            frame_rate=frame_rate,
+            *args,
+            **kwargs
         )
 
         lottie = animation.Animation()
@@ -1776,10 +1791,10 @@ def convert_svg_to_lottie(file, layer_frames=0, embed_images=False, download_fun
         traceback.print_exc()
         return {"error!": str(e)}
 
-def base_convert_svg_to_lottie(file, layer_frames=0, *args, **kwargs):
+def base_convert_svg_to_lottie(file, layer_frames=0, frame_rate=None, *args, **kwargs):
     #try:
     anim = parse_svg_etree(
-        ElementTree.parse(file), layer_frames, *args, **kwargs
+        ElementTree.parse(file), layer_frames, frame_rate=frame_rate, *args, **kwargs
     )
 
     return anim

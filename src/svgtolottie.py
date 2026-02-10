@@ -82,7 +82,7 @@ def _sanitize_filename(filename: str) -> str:
     return safe_name
 
 
-def _convert_svg_file(input_path: Path, output_path: Path, optimize: bool) -> dict:
+def _convert_svg_file(input_path: Path, output_path: Path, optimize: bool, frame_rate: float) -> dict:
     if not is_svg(str(input_path)):
         raise ValueError("Invalid file type. Expected SVG/XML content.")
 
@@ -93,9 +93,9 @@ def _convert_svg_file(input_path: Path, output_path: Path, optimize: bool) -> di
 
     try:
         if optimize:
-            anim = convert_svg_to_lottie(str(tmp_path))
+            anim = convert_svg_to_lottie(str(tmp_path), frame_rate=frame_rate)
         else:
-            anim = convert_svg_to_lottie_def(str(tmp_path))
+            anim = convert_svg_to_lottie_def(str(tmp_path), frame_rate=frame_rate)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, 'w', encoding='utf-8') as f:
@@ -109,6 +109,7 @@ def _convert_svg_file(input_path: Path, output_path: Path, optimize: bool) -> di
 @app.post("/convert/")
 def convert_file(
     optimize: bool = False,
+    frame_rate: float = 30,
     file: UploadFile = File(...)
 ):
     safe_name = _sanitize_filename(file.filename or "")
@@ -127,9 +128,9 @@ def convert_file(
 
     try:
         if suffix == ".zip":
-            convert_zip(str(upload_path), str(output_json), optimize=optimize, pretty=False)
+            convert_zip(str(upload_path), str(output_json), optimize=optimize, pretty=False, frame_rate=frame_rate)
         else:
-            _convert_svg_file(upload_path, output_json, optimize)
+            _convert_svg_file(upload_path, output_json, optimize, frame_rate)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -146,6 +147,7 @@ def convert_file(
 @app.post("/uploadsvg/")
 def create_upload_file_def(
     optimize: bool = False,
+    frame_rate: float = 30,
     output_path: str = None,
     file: UploadFile = File(...)
 ):
@@ -154,6 +156,7 @@ def create_upload_file_def(
     
     Args:
         optimize: If True, use optimized conversion mode
+        frame_rate: Frame rate for the output animation
         output_path: Optional path to save the Lottie JSON file (e.g., "/path/to/output.json")
         file: The SVG file to convert
     
@@ -174,9 +177,9 @@ def create_upload_file_def(
     finally:
         if (is_svg(tmp_path)):
             if not optimize:
-                anim = convert_svg_to_lottie_def(str(newfile.name))
+                anim = convert_svg_to_lottie_def(str(newfile.name), frame_rate=frame_rate)
             else:
-                anim = convert_svg_to_lottie(str(newfile.name))
+                anim = convert_svg_to_lottie(str(newfile.name), frame_rate=frame_rate)
 
             # Clean up temp files
             newfilepath = newfile.name

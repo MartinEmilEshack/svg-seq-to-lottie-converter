@@ -86,6 +86,10 @@
           <input id="optimizeToggle" type="checkbox" />
           Optimize conversion
         </label>
+        <label>
+          Frame rate
+          <input id="frameRateInput" type="number" min="1" step="1" value="30" />
+        </label>
         <button id="uploadButton">Upload & Convert</button>
         <div id="status" class="status"></div>
       </div>
@@ -112,6 +116,7 @@
       const downloadLink = document.getElementById("downloadLink");
       const lottiePlayer = document.getElementById("lottiePlayer");
       const optimizeToggle = document.getElementById("optimizeToggle");
+      const frameRateInput = document.getElementById("frameRateInput");
       let pendingAnimationUrl = null;
 
       lottiePlayer.addEventListener("rendered", () => {
@@ -138,10 +143,16 @@
 
         try {
           const optimizeParam = optimizeToggle.checked ? "true" : "false";
-          const response = await fetch(`/convert/?optimize=${optimizeParam}`, {
+          const frameRateValue = Number(frameRateInput.value) || 30;
+          const response = await fetch(
+            `/convert/?optimize=${optimizeParam}&frame_rate=${encodeURIComponent(
+              frameRateValue
+            )}`,
+            {
             method: "POST",
             body: formData,
-          });
+            }
+          );
           const data = await response.json();
 
           if (!response.ok) {
