@@ -9,7 +9,7 @@ This repository provides three ways to convert SVG files (including SVG frame se
 All approaches use the same conversion logic under `src/core/svg/convert.py` and `src/model/` Pydantic models.
 
 ## SVG sequence support (Moho ZIP exports)
-The converter accepts ZIP archives that contain a sequence of SVG (or XML) frames, such as a ZIP you create from a Moho-exported SVG frame folder. Provide the ZIP file to the CLI or upload it to the API (via Postman or the web UI), and the converter will merge the frames into a single Lottie JSON output.
+The converter accepts ZIP archives that contain a sequence of SVG (or XML) frames, such as a ZIP you create from a Moho exported SVG frames folder. Provide the ZIP file to the CLI or upload it to the API (via Postman or the web UI), and the converter will merge the frames into a single Lottie JSON output.
 
 ---
 
