@@ -130,6 +130,7 @@ curl -X POST "http://127.0.0.1:8000/uploadsvg/" -F "file=@src/file_copy.svg"
 ## Troubleshooting
 - If you see `ImportError: cannot import name 'Schema' from 'pydantic'`, use the updated `requirements.txt` and ensure `pydantic` is < 2.0 (the repository already updated code to remove `Schema` imports).
 - If you see `ModuleNotFoundError: No module named 'triangle'`, install the `triangle` package (`pip install triangle`) or use `requirements.txt`.
+- If you see `ModuleNotFoundError: No module named 'requests'`, reinstall dependencies with `pip install -r requirements.txt` (the dependency is now explicitly listed).
 - If you see color parse `KeyError` from `rgb(...)`, the regex has been updated to support floating percent values.
 - If you see `ERROR:    [Errno 48] error while attempting to bind on address ('0.0.0.0', 8000): address already in use`, ensure no other process is using port 8000 or change the port in `src/svgtolottie.py`. You can use `lsof -i :8000` and `kill $(cat logs/uvicorn.pid)` to find the process using the port and kill it if necessary.
 
