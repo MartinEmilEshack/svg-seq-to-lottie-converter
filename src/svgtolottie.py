@@ -82,7 +82,7 @@ def _sanitize_filename(filename: str) -> str:
     return safe_name
 
 
-def _convert_svg_file(input_path: Path, output_path: Path, optimize: bool, frame_rate: float) -> dict:
+def _convert_svg_file(input_path: Path, output_path: Path, optimize: bool, frame_rate: int) -> dict:
     if not is_svg(str(input_path)):
         raise ValueError("Invalid file type. Expected SVG/XML content.")
 
@@ -109,7 +109,7 @@ def _convert_svg_file(input_path: Path, output_path: Path, optimize: bool, frame
 @app.post("/convert/")
 def convert_file(
     optimize: bool = False,
-    frame_rate: float = 30,
+    frame_rate: int = 30,
     file: UploadFile = File(...)
 ):
     safe_name = _sanitize_filename(file.filename or "")
@@ -147,7 +147,7 @@ def convert_file(
 @app.post("/uploadsvg/")
 def create_upload_file_def(
     optimize: bool = False,
-    frame_rate: float = 30,
+    frame_rate: int = 30,
     output_path: str = None,
     file: UploadFile = File(...)
 ):

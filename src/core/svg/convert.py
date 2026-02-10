@@ -1657,7 +1657,7 @@ class PathDParser:
 def parse_svg_etree(etree, layer_frames=0, embed_images=False, download_func=None, frame_rate=None, *args, **kwargs):
     parser = Parser(embed_images=embed_images, download_func=download_func)
     if frame_rate is not None:
-        kwargs["frameRate"] = frame_rate
+        kwargs["frameRate"] = int(frame_rate)
     return parser.parse_etree(etree, layer_frames, *args, **kwargs)
 
 

@@ -54,7 +54,7 @@ def _convert_svg_to_lottie_dict(
     input_file: str,
     optimize: bool = False,
     embed_images: bool = False,
-    frame_rate: Optional[float] = None
+    frame_rate: Optional[int] = None
 ) -> dict:
     """
     Convert SVG/XML file to Lottie JSON without writing to disk.
@@ -185,7 +185,7 @@ def convert_zip(
     optimize: bool = False,
     pretty: bool = True,
     embed_images: bool = False,
-    frame_rate: Optional[float] = None
+    frame_rate: Optional[int] = None
 ) -> dict:
     """
     Convert ZIP of SVG/XML files to a single multi-frame Lottie JSON.
@@ -243,7 +243,7 @@ def convert(
     optimize: bool = False,
     pretty: bool = True,
     embed_images: bool = False,
-    frame_rate: Optional[float] = None
+    frame_rate: Optional[int] = None
 ) -> dict:
     """
     Convert SVG/XML file to Lottie JSON.
@@ -525,7 +525,7 @@ Examples:
 
     parser.add_argument(
         '--frame-rate',
-        type=float,
+        type=int,
         default=30,
         help='Frame rate for the output animation (default: 30)'
     )
