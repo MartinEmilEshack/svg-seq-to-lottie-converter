@@ -1,11 +1,15 @@
-# SVG to Lottie Converter
+# SVG & SVG Sequence to Lottie Converter
 
-This repository provides two ways to convert SVG files to Lottie JSON:
+This repository provides three ways to convert SVG files (including SVG frame sequences) to Lottie JSON:
 
-- A FastAPI-based Web service (`src/svgtolottie.py`) with an upload endpoint `/uploadsvg/`.
 - A command-line interface (CLI) tool (`src/cli.py`) that can be invoked as `python src/cli.py input.svg output.json`.
+- A web interface that supports uploading, configuring conversion options, previewing, and downloading the generated Lottie JSON.
+- A FastAPI-based Web service (`src/svgtolottie.py`) with an upload endpoint `/uploadsvg/`.
 
-Both approaches use the same conversion logic under `src/core/svg/convert.py` and `src/model/` Pydantic models.
+All approaches use the same conversion logic under `src/core/svg/convert.py` and `src/model/` Pydantic models.
+
+## SVG sequence support (Moho ZIP exports)
+The converter accepts ZIP archives that contain a sequence of SVG (or XML) frames, such as a ZIP you create from a Moho-exported SVG frame folder. Provide the ZIP file to the CLI or upload it to the API (via Postman or the web UI), and the converter will merge the frames into a single Lottie JSON output.
 
 ---
 
@@ -29,7 +33,7 @@ pip install -r requirements.txt
 
 ## 1) CLI Usage (recommended for single conversions)
 
-You can use the CLI to convert a local SVG file to Lottie JSON with a single command.
+You can use the CLI to convert a local SVG file (or a ZIP of SVG/XML frames) to Lottie JSON with a single command.
 
 Basic usage:
 ```bash
@@ -39,6 +43,7 @@ python src/cli.py input.svg output.json
 Options:
 - `--optimize`: use the optimized conversion flow
 - `--compact`: produce compact JSON (no indentation)
+- `--frame-rate`: set the animation frame rate (FPS)
 - `-o`, `--output-file`: alternative to positional output argument
 - `-q`, `--quiet`: suppress status output
 - `--embed-images`: embed images in the JSON
