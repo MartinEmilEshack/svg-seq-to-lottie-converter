@@ -82,6 +82,10 @@
       <p>Select an SVG/XML file or a ZIP containing SVG/XML frames.</p>
       <div class="upload-section">
         <input id="fileInput" type="file" accept=".svg,.xml,.zip" />
+        <label>
+          <input id="optimizeToggle" type="checkbox" />
+          Optimize conversion
+        </label>
         <button id="uploadButton">Upload & Convert</button>
         <div id="status" class="status"></div>
       </div>
@@ -107,6 +111,7 @@
       const resultEl = document.getElementById("result");
       const downloadLink = document.getElementById("downloadLink");
       const lottiePlayer = document.getElementById("lottiePlayer");
+      const optimizeToggle = document.getElementById("optimizeToggle");
       let pendingAnimationUrl = null;
 
       lottiePlayer.addEventListener("rendered", () => {
@@ -132,7 +137,8 @@
         formData.append("file", fileInput.files[0]);
 
         try {
-          const response = await fetch("/convert/", {
+          const optimizeParam = optimizeToggle.checked ? "true" : "false";
+          const response = await fetch(`/convert/?optimize=${optimizeParam}`, {
             method: "POST",
             body: formData,
           });
