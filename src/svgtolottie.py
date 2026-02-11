@@ -26,7 +26,7 @@ from enum import Enum
 import cairosvg
 import time
 
-from cli import convert_zip
+from cli import convert_zip, export_dotlottie
 
 app = FastAPI()
 
@@ -89,7 +89,7 @@ def _convert_svg_file(input_path: Path, output_path: Path, optimize: bool, frame
     with NamedTemporaryFile(delete=False, suffix=".svg") as tmp_svg:
         tmp_path = Path(tmp_svg.name)
 
-    cairosvg.svg2svg(file_obj=open(input_path, 'rb'), write_to=tmp_path)
+    cairosvg.svg2svg(file_obj=open(input_path, 'rb'), write_to=str(tmp_path))
 
     try:
         if optimize:
@@ -106,10 +106,16 @@ def _convert_svg_file(input_path: Path, output_path: Path, optimize: bool, frame
             tmp_path.unlink()
 
 
+class OutputFormat(str, Enum):
+    json = "json"
+    dotlottie = "dotlottie"
+
+
 @app.post("/convert/")
 def convert_file(
     optimize: bool = False,
     frame_rate: int = 30,
+    output_format: OutputFormat = OutputFormat.json,
     file: UploadFile = File(...)
 ):
     safe_name = _sanitize_filename(file.filename or "")
@@ -128,19 +134,26 @@ def convert_file(
 
     try:
         if suffix == ".zip":
-            convert_zip(str(upload_path), str(output_json), optimize=optimize, pretty=False, frame_rate=frame_rate)
+            anim = convert_zip(str(upload_path), str(output_json), optimize=optimize, pretty=False, frame_rate=frame_rate)
         else:
-            _convert_svg_file(upload_path, output_json, optimize, frame_rate)
+            anim = _convert_svg_file(upload_path, output_json, optimize, frame_rate)
+
+        if output_format == OutputFormat.dotlottie:
+            output_file = UPLOADS_DIR / "output.lottie"
+            export_dotlottie(anim, str(output_file))
+        else:
+            output_file = output_json
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    file_url = f"/files/{output_json.name}"
+    file_url = f"/files/{output_file.name}"
+    json_url = f"/files/{output_json.name}"
     return {
         "success": True,
         "message": "Conversion complete.",
-        "filename": output_json.name,
+        "filename": output_file.name,
         "download_url": file_url,
-        "json_url": file_url,
+        "json_url": json_url,
     }
 
 

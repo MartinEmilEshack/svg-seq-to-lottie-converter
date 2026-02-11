@@ -179,6 +179,51 @@ def _extract_zip_svg_entries(zip_path: Path) -> List[Tuple[str, bytes]]:
     return entries
 
 
+def _build_dotlottie_manifest(animation_id: str) -> dict:
+    return {
+        "animations": [
+            {
+                "id": animation_id,
+                "mode": "normal",
+                "direction": 1,
+            }
+        ],
+        "author": "LottieFiles",
+        "description": "",
+        "generator": "dotLottie-js",
+        "keywords": "",
+        "version": "1.0",
+    }
+
+
+def export_dotlottie(animation_data: dict, output_file: str) -> Path:
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    animation_id = output_path.stem
+    animation_json_name = f"{animation_id}.json"
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        animations_dir = temp_path / "animations"
+        animations_dir.mkdir(parents=True, exist_ok=True)
+
+        animation_json_path = animations_dir / animation_json_name
+        manifest_path = temp_path / "manifest.json"
+
+        with open(animation_json_path, 'w', encoding='utf-8') as f:
+            json.dump(animation_data, f, separators=(",", ":"), ensure_ascii=False)
+
+        with open(manifest_path, 'w', encoding='utf-8') as f:
+            json.dump(_build_dotlottie_manifest(animation_id), f, separators=(",", ":"), ensure_ascii=False)
+
+        with zipfile.ZipFile(output_path, 'w', compression=zipfile.ZIP_DEFLATED) as zip_file:
+            zip_file.write(animation_json_path, arcname=f"animations/{animation_json_name}")
+            zip_file.write(manifest_path, arcname="manifest.json")
+
+    return output_path
+
+
 def convert_zip(
     input_file: str,
     output_json: str,
@@ -529,15 +574,24 @@ Examples:
         default=30,
         help='Frame rate for the output animation (default: 30)'
     )
+
+    parser.add_argument(
+        '--dotlottie',
+        action='store_true',
+        help='Export as .lottie package instead of JSON'
+    )
     
     args = parser.parse_args()
     
     # Determine output path
     output_path = args.output_file or args.output
     if output_path is None:
-        # Default: same name as input but with .json extension
+        # Default: same name as input but with .json/.lottie extension
         input_path = Path(args.input)
-        output_path = str(input_path.with_suffix('.json'))
+        default_suffix = '.lottie' if args.dotlottie else '.json'
+        output_path = str(input_path.with_suffix(default_suffix))
+    elif args.dotlottie:
+        output_path = str(Path(output_path).with_suffix('.lottie'))
     
     try:
         if not args.quiet:
@@ -549,23 +603,45 @@ Examples:
         input_path = Path(args.input)
         is_zip_input = input_path.suffix.lower() == '.zip' or zipfile.is_zipfile(input_path)
         if is_zip_input:
-            result = convert_zip(
-                args.input,
-                output_path,
-                optimize=args.optimize,
-                pretty=not args.compact,
-                embed_images=args.embed_images,
-                frame_rate=args.frame_rate
-            )
+            if args.dotlottie:
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    temp_json_file = Path(temp_dir) / "output.json"
+                    result = convert_zip(
+                        args.input,
+                        str(temp_json_file),
+                        optimize=args.optimize,
+                        pretty=not args.compact,
+                        embed_images=args.embed_images,
+                        frame_rate=args.frame_rate
+                    )
+                export_dotlottie(result, output_path)
+            else:
+                result = convert_zip(
+                    args.input,
+                    output_path,
+                    optimize=args.optimize,
+                    pretty=not args.compact,
+                    embed_images=args.embed_images,
+                    frame_rate=args.frame_rate
+                )
         else:
-            result = convert(
-                args.input,
-                output_path,
-                optimize=args.optimize,
-                pretty=not args.compact,
-                embed_images=args.embed_images,
-                frame_rate=args.frame_rate
-            )
+            if args.dotlottie:
+                result = _convert_svg_to_lottie_dict(
+                    args.input,
+                    optimize=args.optimize,
+                    embed_images=args.embed_images,
+                    frame_rate=args.frame_rate
+                )
+                export_dotlottie(result, output_path)
+            else:
+                result = convert(
+                    args.input,
+                    output_path,
+                    optimize=args.optimize,
+                    pretty=not args.compact,
+                    embed_images=args.embed_images,
+                    frame_rate=args.frame_rate
+                )
         
         if not args.quiet:
             # Get some stats
@@ -573,10 +649,12 @@ Examples:
             width = result.get('w', 0)
             height = result.get('h', 0)
             file_size = os.path.getsize(output_path)
+            output_type = ".lottie" if args.dotlottie else "JSON"
             
             print(f"\n✅ Conversion successful!")
             print(f"   Dimensions: {width}x{height}")
             print(f"   Layers:     {layers_count}")
+            print(f"   Output:     {output_type}")
             print(f"   File size:  {file_size:,} bytes")
         
         return 0
