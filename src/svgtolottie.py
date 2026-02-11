@@ -20,11 +20,12 @@ from fastapi.responses import PlainTextResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 
 from enum import Enum
 import cairosvg
 import time
+import base64
+import tempfile
 
 from cli import convert_zip, export_dotlottie
 
@@ -32,10 +33,6 @@ app = FastAPI()
 
 BASE_DIR = Path(__file__).resolve().parent
 INDEX_HTML_PATH = BASE_DIR / "templates" / "index.html"
-UPLOADS_DIR = BASE_DIR / "uploads"
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-
-app.mount("/files", StaticFiles(directory=UPLOADS_DIR), name="files")
 
 origins = [
     "http://127.0.0.1",
@@ -121,39 +118,52 @@ def convert_file(
     safe_name = _sanitize_filename(file.filename or "")
     suffix = Path(safe_name).suffix.lower()
 
-    for existing_file in UPLOADS_DIR.glob("*"):
-        if existing_file.is_file():
-            existing_file.unlink()
-
-    upload_path = UPLOADS_DIR / f"upload{suffix or ''}"
-
-    with open(upload_path, "wb") as out_file:
-        shutil.copyfileobj(file.file, out_file)
-
-    output_json = UPLOADS_DIR / "output.json"
-
     try:
-        if suffix == ".zip":
-            anim = convert_zip(str(upload_path), str(output_json), optimize=optimize, pretty=False, frame_rate=frame_rate)
-        else:
-            anim = _convert_svg_file(upload_path, output_json, optimize, frame_rate)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            upload_path = temp_path / f"upload{suffix or ''}"
+            output_json = temp_path / "output.json"
 
-        if output_format == OutputFormat.dotlottie:
-            output_file = UPLOADS_DIR / "output.lottie"
-            export_dotlottie(anim, str(output_file))
-        else:
-            output_file = output_json
+            with open(upload_path, "wb") as out_file:
+                shutil.copyfileobj(file.file, out_file)
+
+            if suffix == ".zip":
+                anim = convert_zip(str(upload_path), str(output_json), optimize=optimize, pretty=False, frame_rate=frame_rate)
+            else:
+                anim = _convert_svg_file(upload_path, output_json, optimize, frame_rate)
+
+            json_bytes = output_json.read_bytes()
+            json_payload = {
+                "filename": "output.json",
+                "content_type": "application/json",
+                "content_base64": base64.b64encode(json_bytes).decode("ascii"),
+                "data": anim,
+            }
+
+            if output_format == OutputFormat.dotlottie:
+                output_file = temp_path / "output.lottie"
+                export_dotlottie(anim, str(output_file))
+                file_payload = {
+                    "filename": "output.lottie",
+                    "content_type": "application/zip",
+                    "content_base64": base64.b64encode(output_file.read_bytes()).decode("ascii"),
+                }
+            else:
+                file_payload = {
+                    "filename": "output.json",
+                    "content_type": "application/json",
+                    "content_base64": json_payload["content_base64"],
+                }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        file.file.close()
 
-    file_url = f"/files/{output_file.name}"
-    json_url = f"/files/{output_json.name}"
     return {
         "success": True,
         "message": "Conversion complete.",
-        "filename": output_file.name,
-        "download_url": file_url,
-        "json_url": json_url,
+        "output_file": file_payload,
+        "json_file": json_payload,
     }
 
 
