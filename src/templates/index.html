@@ -36,6 +36,11 @@
       input[type="file"] {
         padding: 12px;
       }
+      .button-row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
       button {
         padding: 12px 18px;
         background: #4f46e5;
@@ -44,6 +49,9 @@
         border-radius: 8px;
         font-weight: 600;
         cursor: pointer;
+      }
+      button.secondary {
+        background: #0ea5e9;
       }
       button:disabled {
         background: #9ca3af;
@@ -90,7 +98,10 @@
           Frame rate
           <input id="frameRateInput" type="number" min="1" step="1" value="30" />
         </label>
-        <button id="uploadButton">Upload & Convert</button>
+        <div class="button-row">
+          <button id="uploadJsonButton" data-format="json">Convert to JSON</button>
+          <button id="uploadDotlottieButton" class="secondary" data-format="dotlottie">Convert to dotLottie</button>
+        </div>
         <div id="status" class="status"></div>
       </div>
 
@@ -110,7 +121,9 @@
     </div>
     <script>
       const fileInput = document.getElementById("fileInput");
-      const uploadButton = document.getElementById("uploadButton");
+      const uploadJsonButton = document.getElementById("uploadJsonButton");
+      const uploadDotlottieButton = document.getElementById("uploadDotlottieButton");
+      const actionButtons = [uploadJsonButton, uploadDotlottieButton];
       const statusEl = document.getElementById("status");
       const resultEl = document.getElementById("result");
       const downloadLink = document.getElementById("downloadLink");
@@ -126,7 +139,7 @@
         }
       });
 
-      uploadButton.addEventListener("click", async () => {
+      async function convertFile(outputFormat) {
         if (!fileInput.files.length) {
           statusEl.textContent = "Please choose a file before uploading.";
           statusEl.classList.add("error");
@@ -135,7 +148,7 @@
 
         statusEl.classList.remove("error");
         statusEl.textContent = "Uploading and converting... Please wait.";
-        uploadButton.disabled = true;
+        actionButtons.forEach((button) => (button.disabled = true));
         resultEl.style.display = "none";
 
         const formData = new FormData();
@@ -147,10 +160,10 @@
           const response = await fetch(
             `/convert/?optimize=${optimizeParam}&frame_rate=${encodeURIComponent(
               frameRateValue
-            )}`,
+            )}&output_format=${encodeURIComponent(outputFormat)}`,
             {
-            method: "POST",
-            body: formData,
+              method: "POST",
+              body: formData,
             }
           );
           const data = await response.json();
@@ -161,6 +174,7 @@
 
           statusEl.textContent = data.message || "Conversion complete.";
           downloadLink.href = data.download_url;
+          downloadLink.textContent = `Download ${data.filename}`;
           downloadLink.setAttribute("download", data.filename);
           pendingAnimationUrl = data.json_url;
           lottiePlayer.load(pendingAnimationUrl);
@@ -169,8 +183,12 @@
           statusEl.textContent = error.message;
           statusEl.classList.add("error");
         } finally {
-          uploadButton.disabled = false;
+          actionButtons.forEach((button) => (button.disabled = false));
         }
+      }
+
+      actionButtons.forEach((button) => {
+        button.addEventListener("click", () => convertFile(button.dataset.format));
       });
     </script>
   </body>
