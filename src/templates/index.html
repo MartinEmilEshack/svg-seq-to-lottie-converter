@@ -131,6 +131,35 @@
       const optimizeToggle = document.getElementById("optimizeToggle");
       const frameRateInput = document.getElementById("frameRateInput");
       let pendingAnimationUrl = null;
+      let pendingDownloadUrl = null;
+
+      function base64ToUint8Array(base64String) {
+        const binaryString = atob(base64String);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i += 1) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes;
+      }
+
+      function createFileUrl(filePayload) {
+        const bytes = base64ToUint8Array(filePayload.content_base64);
+        const blob = new Blob([bytes], {
+          type: filePayload.content_type || "application/octet-stream",
+        });
+        return URL.createObjectURL(blob);
+      }
+
+      function triggerDownload(filePayload) {
+        const objectUrl = createFileUrl(filePayload);
+        const tempLink = document.createElement("a");
+        tempLink.href = objectUrl;
+        tempLink.download = filePayload.filename;
+        document.body.appendChild(tempLink);
+        tempLink.click();
+        document.body.removeChild(tempLink);
+        URL.revokeObjectURL(objectUrl);
+      }
 
       lottiePlayer.addEventListener("rendered", () => {
         if (pendingAnimationUrl) {
@@ -172,11 +201,27 @@
             throw new Error(data.message || "Conversion failed.");
           }
 
+          if (!data.output_file || !data.json_file) {
+            throw new Error("Invalid conversion response.");
+          }
+
           statusEl.textContent = data.message || "Conversion complete.";
-          downloadLink.href = data.download_url;
-          downloadLink.textContent = `Download ${data.filename}`;
-          downloadLink.setAttribute("download", data.filename);
-          pendingAnimationUrl = data.json_url;
+
+          triggerDownload(data.output_file);
+
+          if (pendingDownloadUrl) {
+            URL.revokeObjectURL(pendingDownloadUrl);
+          }
+          pendingDownloadUrl = createFileUrl(data.output_file);
+          downloadLink.href = pendingDownloadUrl;
+          downloadLink.textContent = `Download ${data.output_file.filename}`;
+          downloadLink.setAttribute("download", data.output_file.filename);
+
+          const jsonUrl = createFileUrl(data.json_file);
+          if (pendingAnimationUrl) {
+            URL.revokeObjectURL(pendingAnimationUrl);
+          }
+          pendingAnimationUrl = jsonUrl;
           lottiePlayer.load(pendingAnimationUrl);
           resultEl.style.display = "block";
         } catch (error) {
